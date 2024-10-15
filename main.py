@@ -1,25 +1,48 @@
 from fastapi import FastAPI
-from models import *
-from ModelAPI import *
-from utils import *
-
-from typing import List
+from pydantic import BaseModel
+from fastapi.middleware.cors import CORSMiddleware
+import numpy as np
+import spacy
 
 app = FastAPI()
+origins = [
+    "*"
+]
 
-@app.get("/")
-async def root():
-    return {"message": "Hello World"}
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+# Load spaCy model
+nlp = spacy.load('en_core_web_md')
 
-@app.post("/init")
-async def initialize(user: User, setting: Setting = default_setting):
-    modelAPI = ModelAPI.getInstance(setting.model_dump())
-    model = modelAPI.train_base(user.model_dump())
-    return model
+class TextRequest(BaseModel):
+    text: str
 
-@app.post("/feedback")
-async def feedback(user: User, model: Model, feedbacks: List[Feedback], setting: Setting = default_setting):
-    modelAPI = ModelAPI.getInstance(setting.model_dump())
-    model = modelAPI.learn_feedback(model.model_dump(), [feedback.model_dump() for feedback in feedbacks])
-    return model
+class VectorResponse(BaseModel):
+    vector: list
 
+@app.post("/get_vector", response_model=VectorResponse)
+async def get_vector(text_request: TextRequest):
+    text = text_request.text
+    doc = nlp(text)
+    vector = doc.vector.tolist()
+
+    # Ensure the vector is of size 525 using linear interpolation
+    target_size = 525
+    current_size = len(vector)
+
+    if current_size < target_size:
+        # If the vector is smaller, perform linear interpolation
+        indices = np.linspace(0, current_size - 1, target_size)
+        vector = np.interp(indices, np.arange(current_size), vector).tolist()
+    elif current_size > target_size:
+        # If the vector is larger, perform linear interpolation and then truncate
+        indices = np.linspace(0, current_size - 1, target_size)
+        vector = np.interp(indices, np.arange(current_size), vector).tolist()
+
+    print(len(vector))
+    return {"vector": vector}
